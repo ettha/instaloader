@@ -1058,6 +1058,8 @@ class Instaloader:
                     try:
                         if not post_filter(post):
                             self.context.log("{} skipped".format(post))
+                            # Max count should represent the number of actually downloaded posts
+                            max_count+=1
                             continue
                     except (InstaloaderException, KeyError, TypeError) as err:
                         self.context.error("{} skipped. Filter evaluation failed: {}".format(post, err))
