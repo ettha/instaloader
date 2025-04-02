@@ -202,7 +202,6 @@ class Instaloader:
     :param fatal_status_codes: :option:`--abort-on`
     :param iphone_support: not :option:`--no-iphone`
     :param sanitize_paths: :option:`--sanitize-paths`
-    :param no_content
 
     .. attribute:: context
 
@@ -233,8 +232,7 @@ class Instaloader:
                  fatal_status_codes: Optional[List[int]] = None,
                  iphone_support: bool = True,
                  title_pattern: Optional[str] = None,
-                 sanitize_paths: bool = False,
-                 save_content: bool = True):
+                 sanitize_paths: bool = False):
 
         self.context = InstaloaderContext(sleep, quiet, user_agent, max_connection_attempts,
                                           request_timeout, rate_controller, fatal_status_codes,
@@ -290,9 +288,7 @@ class Instaloader:
                     raise InvalidArgumentException("Invalid data for --slide parameter.")
             else:
                 raise InvalidArgumentException("Invalid data for --slide parameter.")
-            
-        self.save_content = save_content
-
+        
     @contextmanager
     def anonymous_copy(self):
         """Yield an anonymous, otherwise equally-configured copy of an Instaloader instance; Then copy its error log."""
@@ -318,8 +314,7 @@ class Instaloader:
             slide=self.slide,
             fatal_status_codes=self.context.fatal_status_codes,
             iphone_support=self.context.iphone_support,
-            sanitize_paths=self.sanitize_paths, 
-            save_content=self.save_content)
+            sanitize_paths=self.sanitize_paths)
         yield new_loader
         self.context.error_log.extend(new_loader.context.error_log)
         new_loader.context.error_log = []  # avoid double-printing of errors
@@ -727,52 +722,52 @@ class Instaloader:
         # Download the image(s) / video thumbnail and videos within sidecars if desired
         downloaded = True
 
-        if self.save_content: 
-            if post.typename == 'GraphSidecar':
-                if (self.download_pictures or self.download_videos) and post.mediacount > 0:
-                    if not _all_already_downloaded(
-                            filename_template, enumerate(
-                                (post.get_is_videos()[i]
-                                for i in range(self.slide_start % post.mediacount, self.slide_end % post.mediacount + 1)),
-                                start=self.slide_start % post.mediacount + 1
-                            )
+
+        if post.typename == 'GraphSidecar':
+            if (self.download_pictures or self.download_videos) and post.mediacount > 0:
+                if not _all_already_downloaded(
+                        filename_template, enumerate(
+                            (post.get_is_videos()[i]
+                            for i in range(self.slide_start % post.mediacount, self.slide_end % post.mediacount + 1)),
+                            start=self.slide_start % post.mediacount + 1
+                        )
+                ):
+                    for edge_number, sidecar_node in enumerate(
+                            post.get_sidecar_nodes(self.slide_start, self.slide_end),
+                            start=self.slide_start % post.mediacount + 1
                     ):
-                        for edge_number, sidecar_node in enumerate(
-                                post.get_sidecar_nodes(self.slide_start, self.slide_end),
-                                start=self.slide_start % post.mediacount + 1
-                        ):
-                            suffix: Optional[str] = str(edge_number)
-                            if '{filename}' in self.filename_pattern:
-                                suffix = None
-                            if self.download_pictures and (not sidecar_node.is_video or self.download_video_thumbnails):
-                                # pylint:disable=cell-var-from-loop
-                                sidecar_filename = self.__prepare_filename(filename_template,
-                                                                        lambda: sidecar_node.display_url)
-                                # Download sidecar picture or video thumbnail (--no-pictures implies --no-video-thumbnails)
-                                downloaded &= self.download_pic(filename=sidecar_filename, url=sidecar_node.display_url,
-                                                                mtime=post.date_local, filename_suffix=suffix)
-                            if sidecar_node.is_video and self.download_videos:
-                                # pylint:disable=cell-var-from-loop
-                                sidecar_filename = self.__prepare_filename(filename_template,
-                                                                        lambda: sidecar_node.video_url)
-                                # Download sidecar video if desired
-                                downloaded &= self.download_pic(filename=sidecar_filename, url=sidecar_node.video_url,
-                                                                mtime=post.date_local, filename_suffix=suffix)
-                    else:
-                        downloaded = False
-            elif post.typename == 'GraphImage':
-                # Download picture
-                if self.download_pictures:
+                        suffix: Optional[str] = str(edge_number)
+                        if '{filename}' in self.filename_pattern:
+                            suffix = None
+                        if self.download_pictures and (not sidecar_node.is_video or self.download_video_thumbnails):
+                            # pylint:disable=cell-var-from-loop
+                            sidecar_filename = self.__prepare_filename(filename_template,
+                                                                    lambda: sidecar_node.display_url)
+                            # Download sidecar picture or video thumbnail (--no-pictures implies --no-video-thumbnails)
+                            downloaded &= self.download_pic(filename=sidecar_filename, url=sidecar_node.display_url,
+                                                            mtime=post.date_local, filename_suffix=suffix)
+                        if sidecar_node.is_video and self.download_videos:
+                            # pylint:disable=cell-var-from-loop
+                            sidecar_filename = self.__prepare_filename(filename_template,
+                                                                    lambda: sidecar_node.video_url)
+                            # Download sidecar video if desired
+                            downloaded &= self.download_pic(filename=sidecar_filename, url=sidecar_node.video_url,
+                                                            mtime=post.date_local, filename_suffix=suffix)
+                else:
+                    downloaded = False
+        elif post.typename == 'GraphImage':
+            # Download picture
+            if self.download_pictures:
+                downloaded = (not _already_downloaded(filename + ".jpg") and
+                            self.download_pic(filename=filename, url=post.url, mtime=post.date_local))
+        elif post.typename == 'GraphVideo':
+            # Download video thumbnail (--no-pictures implies --no-video-thumbnails)
+            if self.download_pictures and self.download_video_thumbnails:
+                with self.context.error_catcher("Video thumbnail of {}".format(post)):
                     downloaded = (not _already_downloaded(filename + ".jpg") and
                                 self.download_pic(filename=filename, url=post.url, mtime=post.date_local))
-            elif post.typename == 'GraphVideo':
-                # Download video thumbnail (--no-pictures implies --no-video-thumbnails)
-                if self.download_pictures and self.download_video_thumbnails:
-                    with self.context.error_catcher("Video thumbnail of {}".format(post)):
-                        downloaded = (not _already_downloaded(filename + ".jpg") and
-                                    self.download_pic(filename=filename, url=post.url, mtime=post.date_local))
-            else:
-                self.context.error("Warning: {0} has unknown typename: {1}".format(post, post.typename))
+        else:
+            self.context.error("Warning: {0} has unknown typename: {1}".format(post, post.typename))
 
         # Save caption if desired
         metadata_string = _ArbitraryItemFormatter(post).format(self.post_metadata_txt_pattern).strip()
